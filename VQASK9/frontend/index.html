@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice-Based Interface</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to right, #ece9e6, #ffffff);
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background: #fff;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 36px;
+            color: #007bff;
+            margin-bottom: 20px;
+            background: -webkit-linear-gradient(45deg, #f3ec78, #af4261);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 28px;
+            color: #555;
+            margin-bottom: 10px;
+        }
+
+        p {
+            font-size: 20px;
+            margin-bottom: 20px;
+            line-height: 1.6;
+            color: #555;
+        }
+
+        .instructions {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #007bff;
+        }
+
+        #response {
+            font-size: 18px;
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background: #f9f9f9;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            color: #333;
+        }
+
+        #image-container {
+            margin-top: 20px;
+        }
+
+        #image-container img {
+            max-width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        #image-container img:hover {
+            transform: scale(1.05);
+        }
+
+        .footer {
+            margin-top: 30px;
+            font-size: 16px;
+            color: #777;
+            border-top: 1px solid #ddd;
+            padding-top: 10px;
+        }
+
+        #progress-indicator {
+            display: none;
+            margin-top: 20px;
+            font-size: 18px;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice-Based Interface for Blind Users</h1>
+        <h2>Welcome to the Voice-Based Interface</h2>
+        <p>This interface helps visually impaired users interact with the application through voice commands. You can capture images, ask questions, and get responses using voice commands.</p>
+        <p class="instructions">Press the space bar and wait for 5 to 7 seconds to capture the image.</p>
+        <div id="response"></div>
+        <div id="image-container">
+            <img src="file:///D:/project/VQASK7/backend/static/captured_images" alt="Captured Image">
+        </div>
+        <div id="progress-indicator">Processing your request...</div>
+        <div class="footer">Powered by Gemini AI</div>
+    </div>
+
+    <audio id="welcome-audio" src="D:\project\VQASK9\frontend\welcome_audio.mp3"></audio>
+
+    <script>
+        const welcomeAudio = document.getElementById('welcome-audio');
+        let imagePath = null;
+        let lastResponse = null;
+        let questionCount = 0;
+        const maxQuestions = 10;
+
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        async function initialVoicePrompt() {
+            console.log("Initial voice prompt called");
+            await speakText("Press the space bar and wait for 5 to 7 seconds to capture the image.");
+        }
+
+        // Ensure that the microphone access prompt doesn't appear repeatedly
+        const checkMicrophoneAccess = async () => {
+            try {
+                recognition.start();
+                recognition.onstart = () => {
+                    console.log("Microphone access granted.");
+                };
+                recognition.onerror = (event) => {
+                    if (event.error === 'not-allowed') {
+                        alert("Microphone access is denied. Please allow microphone access.");
+                    } else {
+                        console.error("Error with microphone: ", event.error);
+                    }
+                };
+            } catch (error) {
+                console.error("Microphone access failed: ", error);
+            }
+        };
+
+        // Request microphone access early in the page lifecycle
+        window.onload = async () => {
+            console.log("Window loaded");
+            await initialVoicePrompt();
+            await checkMicrophoneAccess(); // Request microphone access
+            startListening();
+        };
+
+        document.addEventListener('keydown', async (event) => {
+            if (event.code === 'Space') {
+                if (!welcomeAudio.paused) {
+                    welcomeAudio.play(); // Start audio if it's not already playing
+                } else {
+                    await speakText("Welcome to the Voice-Based Interface. Press the space bar to capture the image.");
+                }
+                await captureImage();
+            }
+        });
+
+        async function captureImage() {
+            const response = await fetch('http://localhost:5000/capture_image', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (data.image_path) {
+                imagePath = data.image_path;
+                displayImage(imagePath);
+                await speakText("Captured image successfully and wait for few seconds to connect.");
+                setTimeout(() => speakText("Please ask a question or give me a command."), 1000);
+                startListening();
+            } else {
+                await speakText("Failed to capture image. Please try again.");
+                startListening();
+            }
+        }
+
+        async function displayImage(imagePath) {
+            const imageContainer = document.getElementById('image-container');
+            imageContainer.innerHTML = `<img src="${imagePath}" alt="Captured Image">`;
+        }
+
+        recognition.onresult = async (event) => {
+            const userCommand = event.results[0][0].transcript.toLowerCase();
+            console.log(`You said: ${userCommand}`);
+            await speakText(`You said: ${userCommand}`);
+
+            // Command handling
+            if (userCommand.includes("stop")) {
+                await speakText("Exiting the application. Goodbye!");
+                setTimeout(() => window.close(), 2000); // Close the browser window after 2 seconds
+                return;
+            } else if (userCommand.includes("repeat")) {
+                if (lastResponse) {
+                    await speakText(`Repeating last response: ${lastResponse}`);
+                } else {
+                    await speakText("No response to repeat yet.");
+                }
+                setTimeout(() => speakText("Please ask a question or give me a command."), 1000);
+                startListening();
+            } else if (userCommand.includes("new image")) {
+                await speakText("Starting new image capture.");
+                // Reset the application state
+                imagePath = null;
+                lastResponse = null;
+                questionCount = 0;
+                await speakText("Press the space bar and wait for 5 to 7 seconds to capture the image.");
+                return;
+            } else {
+                // Handle normal questions
+                await speakText("Processing your question, please wait for few seconds...");
+                showProgressIndicator(true);
+                const response = await askQuestion(userCommand, imagePath);
+                showProgressIndicator(false);
+                displayResponse(response);
+                await speakText(response);
+                lastResponse = response;
+                questionCount += 1;
+
+                if (questionCount >= maxQuestions) {
+                    await speakText("You've reached the question limit. Exiting the application.");
+                    return;
+                }
+                await speakText("Please ask a question or give me a command.");
+                startListening();
+            }
+        };
+
+        recognition.onerror = async (event) => {
+            if (event.error === 'no-speech' || event.error === 'audio-capture') {
+                await speakText("Sorry, I didn't catch that. Please try again.");
+            } else if (event.error === 'network') {
+                await speakText("Error with the speech recognition service. Please try again later.");
+            }
+            startListening();
+        };
+
+        recognition.onend = () => {
+            startListening();
+        };
+
+        async function startListening() {
+            recognition.start();
+        }
+
+        async function speakText(text) {
+            console.log(`Speaking: ${text}`);
+            const synth = window.speechSynthesis;
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            synth.speak(utterance);
+            return new Promise(resolve => {
+                utterance.onend = resolve;
+            });
+        }
+
+        async function askQuestion(question, imagePath) {
+            const response = await fetch('http://localhost:5000/ask_question', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ question, image_path: imagePath })
+            });
+            const data = await response.json();
+            return data.response;
+        }
+
+        function displayResponse(response) {
+            const responseContainer = document.getElementById('response');
+            responseContainer.innerHTML = response;
+        }
+
+        function showProgressIndicator(show) {
+            const progressIndicator = document.getElementById('progress-indicator');
+            progressIndicator.style.display = show ? 'block' : 'none';
+        }
+    </script>
+</body>
+</html>
